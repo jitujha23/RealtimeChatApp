@@ -1,0 +1,402 @@
+﻿@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@model List<IdentityUser>
+
+@{
+    Layout = null;
+    var myId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            background: #f0f2f5;
+        }
+
+        .main-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 30%;
+            background: white;
+            border-right: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .chat-area {
+            width: 70%;
+            display: flex;
+            flex-direction: column;
+            background: #e5ddd5;
+        }
+
+        .chat-user {
+            display: flex;
+            gap: 10px;
+            padding: 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            position: relative;
+        }
+
+            .chat-user:hover {
+                background: #f5f5f5;
+            }
+
+        .profile-wrapper {
+            position: relative;
+        }
+
+            .profile-wrapper img {
+                width: 45px;
+                height: 45px;
+                border-radius: 50%;
+            }
+
+        .online-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            border: 2px solid white;
+        }
+
+        .unread-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: red;
+            color: white;
+            font-size: 10px;
+            padding: 2px 5px;
+            border-radius: 50%;
+        }
+
+        .chat-user-name {
+            font-weight: 600;
+        }
+
+        .chat-user-lastmsg {
+            font-size: 12px;
+            color: gray;
+        }
+
+        .chat-header-mobile {
+            background: #FFE0B2;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+        }
+
+        #chatBox {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+
+        .input-area {
+            background: white;
+            padding: 8px;
+            border-top: 1px solid #ccc;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .chat-placeholder {
+            margin: auto;
+            color: gray;
+            font-size: 18px;
+        }
+
+        @@media(max-width:768px) {
+            .sidebar {
+                width: 100%;
+            }
+
+            .chat-area {
+                position: fixed;
+                left: 100%;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                transition: .3s;
+            }
+
+                .chat-area.active {
+                    left: 0;
+                }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+
+        <!-- LEFT USER LIST -->
+        <div class="sidebar" id="userList">
+            @foreach (var user in Model)
+            {
+                <div class="chat-user" id="user_@user.Id" onclick="openChat('@user.Id','@user.UserName')">
+                    <div class="profile-wrapper">
+                        <img src="https://ui-avatars.com/api/?name=@user.UserName" />
+                        <span id="status_@user.Id" class="online-dot bg-danger"></span>
+                    </div>
+                    <div style="flex:1">
+                        <div class="chat-user-name">@user.UserName</div>
+                        <div class="chat-user-lastmsg" id="lastmsg_@user.Id">Tap to chat</div>
+                    </div>
+                    <span class="unread-badge d-none" id="unread_@user.Id">0</span>
+                </div>
+            }
+        </div>
+
+        <!-- RIGHT CHAT AREA -->
+        <div class="chat-area" id="chatArea">
+            <div id="chatHeader" class="chat-header-mobile d-none">
+                <div class="d-md-none me-2" onclick="closeChat()"><i class="fa fa-arrow-left"></i></div>
+                <div id="chatUserName" class="fw-bold"></div>
+            </div>
+
+            <div id="chatPlaceholder" class="chat-placeholder">Select a chat to start messaging</div>
+            <div id="chatBox"></div>
+            <div id="typing" style="color:gray;height:20px;padding-left:10px;"></div>
+
+            <div id="chatInput" class="input-area d-none">
+                <input type="text" id="messageInput" class="form-control rounded-pill" placeholder="Type...">
+                <label class="btn btn-light mb-0">
+                    <i class="fa fa-paperclip"></i>
+                    <input type="file" id="fileInput" hidden>
+                </label>
+                <button id="sendBtn" class="btn btn-primary rounded-circle"><i class="fa fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let receiverId = "";
+        const myId = "@myId";
+        let messagesCache = {}; // userId -> array of messages
+        let oldestMessageId = {}; // track oldest message per user for infinite scroll
+        let isFetchingOlder = false;
+
+        const connection = new signalR.HubConnectionBuilder().withUrl("/chatHub").build();
+        connection.start().then(()=>connection.invoke("GetOnlineUsers"));
+
+        // ONLINE/OFFLINE STATUS
+        connection.on("UserOnline",id=>status(id,"bg-success"));
+        connection.on("UserOffline",id=>status(id,"bg-danger"));
+        function status(id,cls){
+            document.getElementById("status_"+id)?.classList.remove("bg-success","bg-danger");
+            document.getElementById("status_"+id)?.classList.add(cls);
+        }
+
+        // OPEN CHAT
+        function openChat(id,name){
+            receiverId=id;
+            document.getElementById("chatUserName").innerText=name;
+            chatHeader.classList.remove("d-none");
+            chatInput.classList.remove("d-none");
+            chatPlaceholder.style.display="none";
+            resetUnread(id);
+            if(messagesCache[id]){
+                renderMessages(messagesCache[id]);
+            }else{
+                chatBox.innerHTML='<div class="chat-placeholder">Loading messages...</div>';
+                loadMessages();
+            }
+            chatArea.classList.add("active");
+        }
+
+        // CLOSE CHAT
+        function closeChat(){ chatArea.classList.remove("active"); }
+
+        // RESET UNREAD
+        function resetUnread(id){
+            const badge=document.getElementById("unread_"+id);
+            badge.innerText="0"; badge.classList.add("d-none");
+        }
+
+               const chatBox = document.getElementById("chatBox");
+
+        async function loadMessages(beforeId = null) {
+            if (!receiverId) return;
+            if (isFetchingOlder) return;
+            isFetchingOlder = true;
+
+            try {
+                let url = `/Swadeshichat/GetMessages?userId=${receiverId}&take=50`;
+                if (beforeId) url += `&beforeId=${beforeId}`;
+
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("Server error");
+
+                const msgs = await res.json(); // safer than text + JSON.parse
+
+                if (!messagesCache[receiverId]) messagesCache[receiverId] = [];
+
+                if (beforeId) {
+                    // prepend older messages
+                    messagesCache[receiverId] = msgs.concat(messagesCache[receiverId]);
+
+                    const scrollTopBefore = chatBox.scrollTop;
+                    const scrollHeightBefore = chatBox.scrollHeight;
+
+                    msgs.forEach(m => prependMessage(m.senderId === myId, m.message, m.filePath, m.isSeen));
+
+                    // maintain scroll position
+                    chatBox.scrollTop = chatBox.scrollHeight - scrollHeightBefore + scrollTopBefore;
+                } else {
+                    // first load / refresh
+                    messagesCache[receiverId] = msgs;
+                    renderMessages(msgs);
+                }
+
+                if (msgs.length > 0) oldestMessageId[receiverId] = msgs[0].id;
+            } catch (err) {
+                console.error("Failed to load messages:", err);
+            } finally {
+                isFetchingOlder = false;
+            }
+        }
+
+        function renderMessages(msgs) {
+            chatBox.innerHTML = "";
+            msgs.forEach(m => appendMessage(m.senderId === myId, m.message, m.filePath, m.isSeen));
+            scrollBottom();
+        }
+
+        function prependMessage(isMe, message, filePath, isSeen) {
+            const div = document.createElement("div");
+            div.style.textAlign = isMe ? "right" : "left";
+
+            if (message) {
+                const span = document.createElement("span");
+                span.style.cssText = "background:" + (isMe ? "#DCF8C6" : "#fff") + ";padding:6px 10px;border-radius:10px;display:inline-block;max-width:75%";
+                span.innerHTML = message + (isMe ? `<span style="color:${isSeen ? "blue" : "gray"}">✔✔</span>` : "");
+                div.appendChild(span);
+            }
+
+            if (filePath) {
+                const fileDiv = document.createElement("div");
+                fileDiv.innerHTML = `<a href="${filePath}" target="_blank">File</a>`;
+                div.appendChild(fileDiv);
+            }
+
+            chatBox.prepend(div);
+        }
+
+        function appendMessage(isMe, message, filePath, isSeen) {
+            const div = document.createElement("div");
+            div.style.textAlign = isMe ? "right" : "left";
+
+            if (message) {
+                const span = document.createElement("span");
+                span.style.cssText = "background:" + (isMe ? "#DCF8C6" : "#fff") + ";padding:6px 10px;border-radius:10px;display:inline-block;max-width:75%";
+                span.innerHTML = message + (isMe ? `<span style="color:${isSeen ? "blue" : "gray"}">✔✔</span>` : "");
+                div.appendChild(span);
+            }
+
+            if (filePath) {
+                const fileDiv = document.createElement("div");
+                fileDiv.innerHTML = `<a href="${filePath}" target="_blank">File</a>`;
+                div.appendChild(fileDiv);
+            }
+
+            chatBox.appendChild(div);
+        }
+
+        function scrollBottom() {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // INFINITE SCROLL
+        chatBox.addEventListener("scroll",()=>{
+            if(chatBox.scrollTop<50 && oldestMessageId[receiverId]) loadMessages(oldestMessageId[receiverId]);
+        });
+
+        // SIGNALR RECEIVE
+        connection.on("ReceiveMessage",(uid,name,msg,filePath)=>{
+            const lastmsg=document.getElementById("lastmsg_"+uid);
+            if(lastmsg) lastmsg.innerText=msg||"File";
+
+            if(uid===receiverId){
+                appendMessage(false,msg,filePath,false);
+                scrollBottom();
+                connection.invoke("MarkAsSeen",receiverId);
+                if(messagesCache[receiverId]) messagesCache[receiverId].push({senderId:uid,message:msg,filePath:filePath,isSeen:false});
+            }else{
+                const badge=document.getElementById("unread_"+uid);
+                badge.innerText=(parseInt(badge.innerText||"0")+1);
+                badge.classList.remove("d-none");
+            }
+        });
+
+        // SEND MESSAGE
+        document.getElementById("sendBtn").addEventListener("click",sendMessage);
+        async function sendMessage(){
+            const text=messageInput.value;
+            const file=fileInput.files[0];
+            if(!text && !file) return;
+
+            let fd=new FormData();
+            fd.append("receiver",receiverId);
+            fd.append("message",text);
+            if(file) fd.append("file",file);
+
+            await fetch("/Chat/SendMessage",{method:"POST",body:fd});
+            appendMessage(true,text,file?URL.createObjectURL(file):null,false);
+            messageInput.value=""; fileInput.value="";
+            scrollBottom();
+
+            const lastmsg=document.getElementById("lastmsg_"+receiverId);
+            if(lastmsg) lastmsg.innerText=text||"File";
+
+            if(!messagesCache[receiverId]) messagesCache[receiverId]=[];
+            messagesCache[receiverId].push({senderId:myId,message:text,filePath:file?URL.createObjectURL(file):null,isSeen:false});
+        }
+
+                let unreadCounts = {}; // { userId: number }
+
+        // Update unread badge
+        function updateUnreadBadge(userId) {
+            const userDiv = document.getElementById("user_" + userId);
+            if (!userDiv) return;
+
+            let badge = userDiv.querySelector(".unread-badge");
+            if (!badge) {
+                badge = document.createElement("span");
+                badge.className = "unread-badge badge bg-danger rounded-circle";
+                badge.style.cssText = "position:absolute; right:10px; top:12px; width:18px; height:18px; font-size:12px; display:flex; align-items:center; justify-content:center;";
+                userDiv.style.position = "relative";
+                userDiv.appendChild(badge);
+            }
+
+            if (unreadCounts[userId] > 0) {
+                badge.innerText = unreadCounts[userId];
+                badge.style.display = "flex";
+            } else {
+                badge.style.display = "none";
+            }
+        }
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,478 @@
+﻿@using System.Security.Claims
+
+@{
+    var receiverId = ViewBag.ReceiverId;
+    var receiverName = ViewBag.ReceiverName;
+    var myId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+}
+
+<h3>Chat with: @receiverName</h3>
+
+<div id="chatBox"
+     style="height:350px; border:1px solid #ccc; overflow-y:auto; padding:10px; background:#f9f9f9;">
+
+    @foreach (var msg in ViewBag.Messages)
+    {
+        <div style="margin:5px; text-align:@(msg.SenderId == myId ? "right" : "left")">
+            <span style="background:@(msg.SenderId == myId ? "#DCF8C6" : "#fff"); padding:6px 10px; border-radius:10px; display:inline-block;">
+                @(msg.SenderId == myId ? "Me" : receiverName): @(msg.Message ?? "")
+                @if (msg.SenderId == myId)
+                {
+                  @*   <span class="seenStatus">@((msg.IsSeen) ? "✔✔" : "✔")</span> *@
+                    @if (msg.IsSeen)
+                    {
+                                                <span style="color:blue">✔✔</span>
+                    }
+                    else
+                    {
+                                                <span style="color:gray">✔</span>
+                    }
+                }
+
+            </span>
+
+            @* Show image if exists *@
+            @* @if (!string.IsNullOrEmpty(msg.FilePath))
+            {
+                <div style="margin-top:5px;">
+                    <img src="@msg.FilePath" width="150" style="border-radius:10px;" />
+                </div>
+            } *@
+            @if (!string.IsNullOrEmpty(msg.FilePath))
+            {
+                var ext = System.IO.Path.GetExtension(msg.FilePath).ToLower();
+
+            <div style="margin-top:5px;">
+
+                    @if (ext == ".jpg" || ext == ".png" || ext == ".jpeg" || ext == ".gif")
+                    {
+                        <img src="@msg.FilePath" width="150" style="border-radius:10px;" />
+                    }
+                    else if (ext == ".mp4" || ext == ".webm")
+                    {
+                        <video width="200" controls>
+                            <source src="@msg.FilePath" type="video/mp4">
+                        </video>
+                    }
+                    else if (ext == ".mp3" || ext == ".wav")
+                    {
+                        <audio controls>
+                            <source src="@msg.FilePath" type="audio/mpeg">
+                        </audio>
+                    }
+                    else
+                    {
+                        <a href="@msg.FilePath" target="_blank">Download File</a>
+                    }
+
+            </div>
+            }
+        </div>
+    }
+
+
+</div>
+
+<div id="typing" style="color:gray; height:20px;"></div>
+<div id="filePreview" style="padding:5px;"></div>
+
+@* <br /> *@
+<div class="chat-input d-flex align-items-center" style="gap:10px; padding:5px; border-top:1px solid #ccc;">
+
+    <button type="button" id="recordBtn" class="btn btn-light rounded-circle">
+        <i class="fa fa-microphone"></i>
+    </button>
+
+    <div class="position-relative flex-grow-1">
+
+        <input type="text"
+               id="messageInput"
+               class="form-control rounded-pill pe-5"
+               placeholder="Type a message..."
+               style="padding-right:90px; height:45px;" />
+
+        <label for="fileInput"
+               class="position-absolute top-50 translate-middle-y"
+               style="right:55px; cursor:pointer; color:#555;">
+            <i class="fa fa-paperclip"></i>
+        </label>
+
+        <input type="file" id="fileInput" hidden />
+
+        <button class="btn btn-primary rounded-circle position-absolute top-50 translate-middle-y"
+                onclick="sendMessage()"
+                style="right:5px; width:38px; height:38px;">
+            <i class="fa fa-paper-plane"></i>
+        </button>
+
+    </div>
+</div>
+@* <div class="chat-input d-flex align-items-center"
+     style="gap:10px; padding:5px; border-top:1px solid #ccc;">
+
+    <!-- Input + icons wrapper -->
+    <div class="position-relative flex-grow-1">
+
+        <input type="text"
+               id="messageInput"
+               class="form-control rounded-pill pe-5"
+               placeholder="Type a message..."
+               style="padding-right:90px; height:45px;" />
+
+        <!-- 📎 File icon (inside input) -->
+        <label for="fileInput"
+               class="position-absolute top-50 translate-middle-y"
+               style="right:55px; cursor:pointer; color:#555;">
+            <i class="fa fa-paperclip"></i>
+        </label>
+
+        <input type="file" id="fileInput" hidden />
+
+        <!-- ➤ Send button -->
+        <button class="btn btn-primary rounded-circle position-absolute top-50 translate-middle-y"
+                onclick="sendMessage()"
+                style="right:5px; width:38px; height:38px; display:flex; align-items:center; justify-content:center;">
+            <i class="fa fa-paper-plane"></i>
+        </button>
+
+    </div>
+
+</div> *@
+
+<!-- FontAwesome CDN for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+
+<script>
+    const receiverId = "@receiverId";
+const chatBox = document.getElementById("chatBox");
+
+const connection = new signalR.HubConnectionBuilder()
+    .withUrl("/chatHub")
+    .build();
+
+function scrollToBottom() {
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+connection.on("ReceiveMessage", function (userId, name, message, filePath) {
+
+    let html = "";
+
+    if (message) {
+        html += `<div style="text-align:left">
+                    <span>${name}: ${message}</span>
+                 </div>`;
+    }
+
+    // if (filePath) {
+    //     html += `<div><img src="${filePath}" width="150"/></div>`;
+    // }
+   if (filePath) {
+
+    const ext = filePath.split('.').pop().toLowerCase();
+
+    if (["jpg","jpeg","png","gif"].includes(ext)) {
+
+        html += `<div><img src="${filePath}" width="150"/></div>`;
+
+    } else if (["mp4","webm"].includes(ext)) {
+
+        html += `<video width="200" controls>
+                    <source src="${filePath}">
+                 </video>`;
+
+    } else if (["mp3","wav"].includes(ext)) {
+
+        html += `<audio controls>
+                    <source src="${filePath}">
+                 </audio>`;
+
+    } else {
+
+        html += `<a href="${filePath}" target="_blank">Download file</a>`;
+    }
+}
+
+    chatBox.innerHTML += html;
+
+    connection.invoke("MarkAsSeen", receiverId);
+
+    scrollToBottom();
+});
+
+       connection.on("MessagesSeen", function (userId) {
+        document.querySelectorAll(".seenStatus")
+            .forEach(x => {
+            x.innerHTML = "✔✔";
+            x.style.color = "blue";
+        });
+
+    });
+
+connection.start().then(() => {
+        connection.invoke("MarkAsSeen", receiverId);
+    scrollToBottom();
+        document.getElementById("messageInput").focus();
+});
+
+async function sendMessage() {
+
+    const message = document.getElementById("messageInput").value;
+    const file = document.getElementById("fileInput").files[0];
+    const paperclipIcon = document.querySelector(".fa-paperclip");
+
+    if (!message && !file) return;
+
+    let formData = new FormData();
+    formData.append("message", message);
+    formData.append("receiver", receiverId);
+
+    if (file) {
+        formData.append("file", file);
+    }
+
+    let response = await fetch("/Chat/SendMessage", {
+        method: "POST",
+        body: formData
+    });
+
+    // UI me apna message turant show
+    let myHtml = `<div style="text-align:right">`;
+
+if (message) {
+
+    myHtml += `
+        <span style="
+            background:#DCF8C6;
+            padding:6px 10px;
+            border-radius:10px;
+            display:inline-block;
+            max-width:75%;
+        ">
+            Me: ${message}
+
+            <span class="seenStatus" style="color:gray">✔</span>
+        </span>
+    `;
+}
+
+if (file) {
+
+    const url = URL.createObjectURL(file);
+
+    if (file.type.startsWith("image/")) {
+
+        myHtml += `
+        <div style="margin-top:5px;">
+            <img src="${url}" width="150" style="border-radius:10px;" />
+        </div>`;
+
+    }
+    else if (file.type.startsWith("video/")) {
+
+        myHtml += `
+        <div style="margin-top:5px;">
+            <video width="200" controls style="border-radius:10px;">
+                <source src="${url}">
+            </video>
+        </div>`;
+
+    }
+    else if (file.type.startsWith("audio/")) {
+
+        myHtml += `
+        <div style="margin-top:5px;">
+            <audio controls>
+                <source src="${url}">
+            </audio>
+        </div>`;
+
+    }
+    else {
+
+        myHtml += `
+        <div style="margin-top:5px;">
+            <a href="${url}" target="_blank">${file.name}</a>
+        </div>`;
+    }
+}
+// if (file) {
+
+//     const url = URL.createObjectURL(file);
+
+//     myHtml += `
+//         <div style="margin-top:5px;">
+//             <img src="${url}" width="150" style="border-radius:10px;" />
+//         </div>
+//     `;
+// }
+    // if (file) {
+    //     const url = URL.createObjectURL(file);
+    //     myHtml += `<br><img src="${url}" width="150"/>`;
+    // }
+
+    myHtml += `</div>`;
+
+    chatBox.innerHTML += myHtml;
+
+    document.getElementById("messageInput").value = "";
+    document.getElementById("fileInput").value = "";
+ 
+    // removePreview();
+
+    // 📎 icon normal
+    paperclipIcon.style.color = "#555";
+
+    // 🔘 send button disable
+    toggleSendButton();
+    scrollToBottom();
+}
+
+        // ✅ ENTER key send
+        document.getElementById("messageInput")
+            .addEventListener("keypress", function (e) {
+                connection.invoke("Typing", receiverId);
+
+                if (e.key === "Enter") {
+                        sendMessage();
+                }
+            });
+
+     connection.on("UserTyping", function (name) {
+
+        document.getElementById("typing").innerHTML =
+            name + " is typing...";
+
+        setTimeout(() => {
+            document.getElementById("typing").innerHTML = "";
+        }, 1000);
+    });
+
+    const fileInput = document.getElementById("fileInput");
+const messageInput = document.getElementById("messageInput");
+const sendBtn = document.querySelector(".btn-primary");
+const paperclipIcon = document.querySelector(".fa-paperclip");
+
+function toggleSendButton() {
+
+    if (messageInput.value.trim() !== "" || fileInput.files.length > 0) {
+        sendBtn.style.opacity = "1";
+        sendBtn.disabled = false;
+    } else {
+        sendBtn.style.opacity = "0.5";
+        sendBtn.disabled = true;
+    }
+}
+
+messageInput.addEventListener("input", toggleSendButton);
+
+fileInput.addEventListener("change", function () {
+
+    if (this.files.length > 0) {
+        paperclipIcon.style.color = "#0d6efd";
+    } else {
+        paperclipIcon.style.color = "#555";
+    }
+
+    toggleSendButton();
+});
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    toggleSendButton();   // 🔥 default disabled on page load
+
+});
+
+// const previewBox = document.getElementById("filePreview");
+// const fileInput = document.getElementById("fileInput");
+// const messageInput = document.getElementById("messageInput");
+// const sendBtn = document.querySelector(".btn-primary");
+// const paperclipIcon = document.querySelector(".fa-paperclip");
+
+// // function toggleSendButton() {
+// //     sendBtn.disabled = !(messageInput.value.trim() || fileInput.files.length);
+// //     sendBtn.style.opacity = sendBtn.disabled ? "0.5" : "1";
+// // }
+
+// messageInput.addEventListener("input", toggleSendButton);
+
+// fileInput.addEventListener("change", function () {
+
+//     previewBox.innerHTML = "";
+
+//     const file = this.files[0];
+//     if (!file) return;
+
+//     const url = URL.createObjectURL(file);
+
+//     let html = `<div style="position:relative;display:inline-block;">`;
+
+//     if (file.type.startsWith("image/"))
+//         html += `<img src="${url}" width="120" style="border-radius:10px;">`;
+
+//     else if (file.type.startsWith("video/"))
+//         html += `<video width="150" controls><source src="${url}"></video>`;
+
+//     else if (file.type.startsWith("audio/"))
+//         html += `<audio controls><source src="${url}"></audio>`;
+
+//     else
+//         html += `<div>${file.name}</div>`;
+
+//     html += `<span onclick="removePreview()" 
+//                 style="position:absolute;top:-8px;right:-8px;
+//                 cursor:pointer;background:red;color:#fff;
+//                 border-radius:50%;padding:2px 6px;">✖</span></div>`;
+
+//     previewBox.innerHTML = html;
+
+//     paperclipIcon.style.color = "#0d6efd";
+//     toggleSendButton();
+// });
+
+// function removePreview() {
+//     fileInput.value = "";
+//     previewBox.innerHTML = "";
+//     paperclipIcon.style.color = "#555";
+//     toggleSendButton();
+// }
+
+// let mediaRecorder;
+// let audioChunks = [];
+
+// document.getElementById("recordBtn").onclick = async function () {
+
+//     if (!mediaRecorder || mediaRecorder.state === "inactive") {
+
+//         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+//         mediaRecorder = new MediaRecorder(stream);
+//         mediaRecorder.start();
+
+//         this.innerHTML = `<i class="fa fa-stop text-danger"></i>`;
+
+//         mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+
+//         mediaRecorder.onstop = () => {
+
+//             const blob = new Blob(audioChunks, { type: 'audio/mp3' });
+//             const file = new File([blob], "voice.mp3");
+
+//             const dt = new DataTransfer();
+//             dt.items.add(file);
+//             fileInput.files = dt.files;
+
+//             fileInput.dispatchEvent(new Event("change"));
+
+//             audioChunks = [];
+//         };
+
+//     } else {
+//         mediaRecorder.stop();
+//         this.innerHTML = `<i class="fa fa-microphone"></i>`;
+//     }
+// };
+</script>

@@ -1,0 +1,317 @@
+﻿@using Microsoft.AspNetCore.Identity
+@model List<IdentityUser>
+
+@{
+    Layout = null;
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" />
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+
+<style>
+
+body{
+    margin:0;
+    background:#f0f2f5;
+    font-family:sans-serif;
+}
+
+.main-container{
+    display:flex;
+    height:100vh;
+}
+
+/* LEFT PANEL */
+
+.sidebar{
+    width:30%;
+    background:white;
+    border-right:1px solid #ddd;
+    display:flex;
+    flex-direction:column;
+            height: 100vh;
+}
+
+.chat-header{
+    background:#075E54;
+    color:white;
+    padding:15px;
+    font-size:18px;
+}
+
+.chat-user-list{
+    overflow-y:auto;
+            flex: 1;
+}
+
+.chat-user{
+    display:flex;
+    gap:10px;
+    padding:12px;
+    cursor:pointer;
+    border-bottom:1px solid #f1f1f1;
+}
+
+.chat-user:hover{
+    background:#f5f5f5;
+}
+
+.profile-wrapper{
+    position:relative;
+}
+
+.profile-wrapper img{
+    width:45px;
+    height:45px;
+    border-radius:50%;
+}
+
+.online-dot{
+    width:12px;
+    height:12px;
+    border-radius:50%;
+    position:absolute;
+    bottom:0;
+    right:0;
+    border:2px solid white;
+}
+
+.user-info{ flex:1; }
+
+.top-row{
+    display:flex;
+    justify-content:space-between;
+}
+
+.user-name{ font-weight:600; }
+
+.msg-time{
+    font-size:12px;
+    color:gray;
+}
+
+.bottom-row{
+    font-size:13px;
+    color:gray;
+}
+
+/* RIGHT PANEL */
+
+.chat-area{
+    width:70%;
+    display:flex;
+    flex-direction:column;
+    background:#e5ddd5;
+}
+
+/* placeholder center only when empty */
+
+.chat-placeholder{
+    margin:auto;
+    color:gray;
+    font-size:18px;
+}
+
+/* MOBILE */
+
+@@media(max-width:768px){
+
+.main-container{
+    flex-direction:column;
+}
+
+.sidebar{
+    width:100%;
+    height:100vh;
+}
+
+.chat-area{
+    position:fixed;
+    top:0;
+    left:100%;
+    width:100%;
+    height:100%;
+    z-index:1000;
+    background:#e5ddd5;
+    transition:0.3s;
+}
+
+.chat-area.active{
+    left:0;
+}
+
+}
+
+        .logo-container {
+            background: #FFE0B2;
+            margin-bottom: 20px;
+           /*  border-radius: 10px; */
+           
+        }
+
+        .app-logo {
+            width: 300px;
+            max-width: 50%;
+            height: auto;
+            padding: 5px;
+        }
+
+        .sidebar-footer {
+            background: white;
+            font-size: 13px;
+        }
+</style>
+</head>
+
+<body>
+
+<div class="main-container">
+
+    <!-- LEFT -->
+
+    <div class="sidebar" id="userList">
+            <div class="logo-container">
+                <img src="~/images/logofinal.png" alt="SwadeshiChat Logo" class="app-logo" />
+            </div>
+      @*   <div class="chat-header">Swadeshi Chats</div> *@
+
+        <div class="chat-user-list">
+
+                @foreach (var user in Model)
+                {
+                    <div class="chat-user" onclick="openChat('@user.Id')">
+
+                        <div class="profile-wrapper">
+                            <img src="https://ui-avatars.com/api/?name=@user.UserName" />
+                            <span id="status_@user.Id" class="online-dot bg-danger"></span>
+                        </div>
+
+                        <div class="user-info">
+
+                            <div class="top-row">
+                                <span class="user-name">@user.UserName</span>
+                                <span class="msg-time">now</span>
+                            </div>
+
+                            <div class="bottom-row">Tap to chat</div>
+
+                        </div>
+
+                    </div>
+                }
+
+        </div>
+            <div class="sidebar-footer">
+                <footer class="border-top text-muted py-2">
+                    <div class="container text-center fw-bold small">
+
+                        <span style="color:#FF9933;">© 2026</span> -
+                        <span style="color:#FF6A00; padding:2px 6px; border-radius:4px;">
+                            Swadeshi
+                        </span>
+                        <span style="color:#138808;">Chat</span> -
+
+                        <div style="color:#000080;">
+                            Developed By Jitendra Bhardwaj
+                        </div>
+
+                    </div>
+                </footer>
+            </div>
+    </div>
+
+        
+    <!-- RIGHT -->
+
+    <div class="chat-area" id="chatArea">
+
+        <div class="chat-placeholder">
+            Select a chat to start messaging
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+            function openChat(userId){
+
+            fetch(`/Chat/ChatWindowMain?userId=${userId}`)
+            .then(res=>res.text())
+            .then(html=>{
+
+                const chatArea = document.getElementById("chatArea");
+                chatArea.innerHTML = html;
+                chatArea.classList.add("active");
+                       
+                setTimeout(()=>{
+                    const chatBox = document.getElementById("chatBox");
+                    if(chatBox){
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
+                },200);
+                chatArea.querySelectorAll("script").forEach(oldScript => {
+
+                    const newScript = document.createElement("script");
+
+                    if (oldScript.src) {
+                        newScript.src = oldScript.src;
+                    } else {
+                        newScript.textContent = oldScript.textContent;
+                    }
+
+                    document.body.appendChild(newScript);
+                });
+
+            });
+
+        }
+
+
+function closeChat(){
+    document.getElementById("chatArea").classList.remove("active");
+}
+
+/* SIGNALR */
+        window.connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .build();
+
+        window.connection.on("UserOnline", userId => {
+            document.getElementById("status_" + userId)
+                ?.classList.replace("bg-danger", "bg-success");
+        });
+
+        window.connection.on("UserOffline", userId => {
+            document.getElementById("status_" + userId)
+                ?.classList.replace("bg-success", "bg-danger");
+        });
+
+        window.connection.on("OnlineUsersList", users => {
+            users.forEach(id => {
+                document.getElementById("status_" + id)
+                    ?.classList.replace("bg-danger", "bg-success");
+            });
+        });
+
+        window.connection.start()
+            .then(() => {
+                console.log("Connected");
+                window.connection.invoke("GetOnlineUsers");
+            })
+            .catch(err => console.error(err));
+
+   
+
+        
+</script>
+
+</body>
+</html>

@@ -1,0 +1,8 @@
+﻿@model List<ChatMessage>
+
+@foreach (var msg in Model)
+{
+    <div>
+        <b>@msg.SenderId :</b> @msg.Message
+    </div>
+}

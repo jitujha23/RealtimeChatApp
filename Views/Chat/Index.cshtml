@@ -1,0 +1,45 @@
+﻿@using Microsoft.AspNetCore.Identity
+@model List<IdentityUser>
+
+<h2>User List</h2>
+
+<ul>
+    @foreach (var user in Model)
+    {
+        <li>
+            <span id="status_@user.Id" class="badge bg-danger"> </span>
+
+            <a asp-action="ChatWindow" asp-route-userId="@user.Id">
+                @user.UserName
+            </a>
+        </li>
+    }
+</ul>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+
+<script>
+
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/chatHub")
+        .build();
+
+    connection.on("UserOnline", userId => {
+        document.getElementById("status_" + userId)?.classList.replace("bg-danger","bg-success");
+    });
+
+    connection.on("UserOffline", userId => {
+        document.getElementById("status_" + userId)?.classList.replace("bg-success","bg-danger");
+    });
+
+    connection.on("OnlineUsersList", users => {
+        users.forEach(id => {
+            document.getElementById("status_" + id)?.classList.replace("bg-danger","bg-success");
+        });
+    });
+
+    connection.start().then(() => {
+        connection.invoke("GetOnlineUsers");
+    });
+
+</script>
